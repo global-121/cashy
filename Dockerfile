@@ -1,5 +1,5 @@
 # python base image in the container from Docker Hub
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # copy files to the /app folder in the container
 COPY ./src /app/src
