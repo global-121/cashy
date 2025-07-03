@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "121-chatbot"
+version = "0.0.1"
+authors = [
+  "Jacopo Margutti <jmargutti@redcross.nl>"
+]
+description = "121 chatbot"
+readme = "README.md"
+repository = "https://github.com/rodekruis/121-chatbot"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+azure-search-documents = "*"
+azure-identity = "*"
+beautifulsoup4 = "*"
+fastapi = "*"
+langchain = "*"
+langchain-community = "*"
+langchain-openai = "*"
+langgraph = "*"
+lxml = "*"
+markdownify = "*"
+spacy = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
