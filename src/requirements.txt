@@ -3,7 +3,7 @@ spacy==3.6.1
 unstructured==0.10.18
 openpyxl==3.1.2
 langchain==0.0.340
-pypdf==3.15.4
+pypdf==3.17.0
 pytest==7.4.1
 sentence-transformers==2.2.2
 chromadb==0.4.10
