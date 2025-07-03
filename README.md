@@ -1,4 +1,4 @@
-# hia-chatbot
+# Cashy
 
 Chat with [121 user manual](https://manual.121.global).
  
