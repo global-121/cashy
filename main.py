@@ -10,7 +10,10 @@ from fastapi import (
     HTTPException,
     Header,
 )
-from langchain_community.document_loaders.sitemap import SitemapLoader
+from langchain_community.document_transformers import MarkdownifyTransformer
+from langchain_community.vectorstores.azuresearch import AzureSearch
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import AzureOpenAIEmbeddings
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,9 +28,8 @@ from langchain import hub
 from langgraph.graph import START, StateGraph
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.RAG.vector_store import VectorStore
-from src.constants import DocumentMetadata
+from langchain_community.document_loaders import RecursiveUrlLoader
 
-dm = DocumentMetadata()
 from time import perf_counter
 import math
 import statistics
@@ -91,6 +93,33 @@ azure_search_index_client = SearchIndexClient(
 
 vector_store_id = "121chatbot"
 
+# initialize vector store
+vector_db = VectorStore(
+    store_path=os.environ["VECTOR_STORE_ADDRESS"],
+    store_service="azuresearch",
+    store_password=os.environ["VECTOR_STORE_PASSWORD"],
+    embedding_source="OpenAI",
+    embedding_model=os.environ["MODEL_EMBEDDINGS"],
+    store_id=vector_store_id,
+)
+
+# create the retriever and the QA pipeline
+llm = AzureChatOpenAI(
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    azure_deployment=os.environ["MODEL_CHAT"],
+    openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+)
+# prompt = hub.pull("rlm/rag-prompt")
+
+template = """You are a chatbot that gives an answer to a question. Answer the question truthfully based solely on
+ the given documents. If you don't know the answer, just say that you don't know, don't try to make up an answer.
+ If no documents are provided to answer the question, answer exactly this: 'I don't have the right information
+ to answer your question'.
+ Documents: {context}
+ Question: {question}
+ Answer:"""
+prompt = PromptTemplate.from_template(template)
+
 
 @app.get("/", include_in_schema=False)
 async def docs_redirect():
@@ -122,83 +151,43 @@ async def ask_question(
     if api_key != os.environ["API_KEY"]:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # initialize vector store
-    t2_start = perf_counter()
-    vector_db = VectorStore(
-        store_path=os.environ["VECTOR_STORE_ADDRESS"],
-        store_service="azuresearch",
-        store_password=os.environ["VECTOR_STORE_PASSWORD"],
-        embedding_source="OpenAI",
-        embedding_model=os.environ["MODEL_EMBEDDINGS"],
-        store_id=vector_store_id,
-    )
-    t2_stop = perf_counter()
-    logger.info(
-        f"Elapsed time getting vector store: {float(t2_stop - t2_start)} seconds"
-    )
-
-    # create the retriever and the QA pipeline
-    llm = AzureChatOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        azure_deployment=os.environ["MODEL_CHAT"],
-        openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-    )
-    # prompt = hub.pull("rlm/rag-prompt")
-
-    template = """You are a chatbot that gives an answer to a question. Answer the question truthfully based solely on
-     the given documents. If you don't know the answer, just say that you don't know, don't try to make up an answer.
-     If no documents are provided to answer the question, answer exactly this: 'I don't have the right information
-     to answer your question'.
-     Documents: {context}
-     Question: {question}
-     Answer:"""
-    prompt = PromptTemplate.from_template(template)
-
+    t_start = perf_counter()
     retrieved_docs = vector_db.langchain_client.similarity_search(payload.question)
+    t_stop = perf_counter()
+    logger.info(f"Elapsed time retrieving documents: {float(t_stop - t_start)} seconds")
+
     docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
     prompt_invocation = prompt.invoke(
         {"question": payload.question, "context": docs_content}
     )
+
+    t2_start = perf_counter()
     answer = llm.invoke(prompt_invocation)
     t2_stop = perf_counter()
     logger.info(f"Elapsed time getting answer: {float(t2_stop - t2_start)} seconds")
 
-    return answer
+    return answer.content
 
 
-# class VectorStorePayload(BaseModel):
-#     url: str = Field(
-#         ...,
-#         description="""
-#     URL to user manual""",
-#     )
-
-
-@app.post("/create-vector-store")
-async def create_vector_store(
-    api_key: str = Depends(key_query_scheme),  # , payload: VectorStorePayload
+@app.post("/update-vector-store")
+async def update_vector_store(
+    api_key: str = Depends(key_query_scheme),
 ):
     """Create a vector store from a HIA instance. Replace all entries if it already exists."""
 
     if api_key != os.environ["API_KEY"]:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # load documents from Google Sheet
-    doc_loader = SitemapLoader(
-        web_path="https://manual.121.global/en/sitemap.xml",
-        filter_urls=[
-            "https://manual.121.global/faq/",
-            "https://manual.121.global/general/",
-            "https://manual.121.global/monitoring/",
-            "https://manual.121.global/payment/",
-            "https://manual.121.global/registration/",
-            "https://manual.121.global/team/",
-            "https://manual.121.global/users/",
-            "https://manual.121.global/verification/",
-        ],
+    # load documents from 121 user manual
+    doc_loader = RecursiveUrlLoader(
+        "https://manual.121.global/en/",
+        prevent_outside=True,
+        base_url="https://manual.121.global/en/",
+        exclude_dirs=["https://manual.121.global/en/nlrc"],
     )
     docs = doc_loader.load()
 
+    # split documents into chunks
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,  # chunk size (characters)
         chunk_overlap=200,  # chunk overlap (characters)
@@ -206,20 +195,33 @@ async def create_vector_store(
     )
     docs = text_splitter.split_documents(docs)
 
-    # add documents to vector store
-    vector_store = VectorStore(
-        store_path=os.environ["VECTOR_STORE_ADDRESS"],
-        store_service="azuresearch",
-        store_password=os.environ["VECTOR_STORE_PASSWORD"],
-        embedding_source="OpenAI",
-        embedding_model=os.environ["MODEL_EMBEDDINGS"],
-        store_id=vector_store_id,
+    # convert HTML to markdown
+    md = MarkdownifyTransformer(strip="a")
+    docs = md.transform_documents(docs)
+
+    # delete existing data
+    index_client = SearchIndexClient(
+        os.environ["VECTOR_STORE_ADDRESS"],
+        AzureKeyCredential(os.environ["VECTOR_STORE_PASSWORD"]),
     )
-    n_docs = vector_store.add_documents(docs)
+    index_client.delete_index(vector_store_id)
+
+    # embed docs and store to vector db
+    embedder = AzureOpenAIEmbeddings(
+        deployment=os.environ["MODEL_EMBEDDINGS"],
+        chunk_size=1,
+    )
+    vector_store = AzureSearch(
+        azure_search_endpoint=os.environ["VECTOR_STORE_ADDRESS"],
+        azure_search_key=os.environ["VECTOR_STORE_PASSWORD"],
+        index_name=vector_store_id,
+        embedding_function=embedder.embed_query,
+    )
+    vector_store.add_documents(docs)
 
     return JSONResponse(
         status_code=200,
-        content=f"Created index {vector_store_id} with {n_docs} documents.",
+        content=f"Updated {vector_store_id} with {len(docs)} documents.",
     )
 
 
