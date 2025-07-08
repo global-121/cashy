@@ -12,7 +12,6 @@ from fastapi import (
 )
 from langchain_community.document_transformers import MarkdownifyTransformer
 from langchain_community.vectorstores.azuresearch import AzureSearch
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import AzureOpenAIEmbeddings
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.security import APIKeyHeader
@@ -20,14 +19,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from azure.search.documents.indexes import SearchIndexClient
 from azure.core.credentials import AzureKeyCredential
-from azure.core.exceptions import ResourceNotFoundError
 from langchain_core.documents import Document
 from typing_extensions import List, TypedDict
 from langchain_openai import AzureChatOpenAI
-from langchain import hub
-from langgraph.graph import START, StateGraph
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from src.RAG.vector_store import VectorStore
 from langchain_community.document_loaders import RecursiveUrlLoader
 
 from time import perf_counter
@@ -94,13 +89,14 @@ azure_search_index_client = SearchIndexClient(
 vector_store_id = "121chatbot"
 
 # initialize vector store
-vector_db = VectorStore(
-    store_path=os.environ["VECTOR_STORE_ADDRESS"],
-    store_service="azuresearch",
-    store_password=os.environ["VECTOR_STORE_PASSWORD"],
-    embedding_source="OpenAI",
-    embedding_model=os.environ["MODEL_EMBEDDINGS"],
-    store_id=vector_store_id,
+vector_db = AzureSearch(
+    azure_search_endpoint=os.environ["VECTOR_STORE_ADDRESS"],
+    azure_search_key=os.environ["VECTOR_STORE_PASSWORD"],
+    index_name=vector_store_id,
+    embedding_function=AzureOpenAIEmbeddings(
+        deployment=os.environ["MODEL_EMBEDDINGS"],
+        chunk_size=1,
+    ).embed_query,
 )
 
 # create the retriever and the QA pipeline
@@ -152,7 +148,7 @@ async def ask_question(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     t_start = perf_counter()
-    retrieved_docs = vector_db.langchain_client.similarity_search(payload.question)
+    retrieved_docs = vector_db.similarity_search(payload.question, k=10)
     t_stop = perf_counter()
     logger.info(f"Elapsed time retrieving documents: {float(t_stop - t_start)} seconds")
 
@@ -226,13 +222,12 @@ async def update_vector_store(
 
 
 @app.get("/get-models")
-async def get_models_used_in_chatbot():
-    """Get models used in the chatbot."""
+async def get_models():
+    """Get the models used."""
     return JSONResponse(
         status_code=200,
         content={
-            "endpoint": os.environ["AZURE_OPENAI_ENDPOINT"],
-            "chatbot": os.environ["MODEL_QA"],
+            "chatbot": os.environ["MODEL_CHAT"],
             "embeddings": os.environ["MODEL_EMBEDDINGS"],
         },
     )
