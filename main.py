@@ -63,7 +63,7 @@ Built with love by [NLRC 510](https://www.510.global/). See
 
 # initialize FastAPI
 app = FastAPI(
-    title="121-chatbot",
+    title="💸 Cashy",
     description=description,
     version="0.0.1",
     license_info={
