@@ -2,7 +2,6 @@
 FROM python:3.12-slim
 
 # copy files to the /app folder in the container
-COPY ./src /app/src
 COPY ./config /app/config
 COPY ./main.py /app/main.py
 COPY ./pyproject.toml /app/pyproject.toml
