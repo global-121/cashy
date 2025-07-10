@@ -107,12 +107,13 @@ llm = AzureChatOpenAI(
 )
 # prompt = hub.pull("rlm/rag-prompt")
 
-template = """You are a chatbot that gives an answer to a question. Answer the question truthfully based solely on
- the given documents. If you don't know the answer, just say that you don't know, don't try to make up an answer.
- If no documents are provided to answer the question, answer exactly this: 'I don't have the right information
- to answer your question'.
- Documents: {context}
- Question: {question}
+# Load system prompt from file
+with open("config/cashy-prompt.txt", "r") as f:
+    cashy_prompt = f.read()
+
+template = f"""{cashy_prompt}
+ Documents: {{context}}
+ Question: {{question}}
  Answer:"""
 prompt = PromptTemplate.from_template(template)
 
@@ -153,6 +154,7 @@ async def ask_question(
     logger.info(f"Elapsed time retrieving documents: {float(t_stop - t_start)} seconds")
 
     docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
+    logger.info(f"Retrieved {len(retrieved_docs)} documents with content: {docs_content[:100]}...")
     prompt_invocation = prompt.invoke(
         {"question": payload.question, "context": docs_content}
     )
@@ -169,7 +171,7 @@ async def ask_question(
 async def update_vector_store(
     api_key: str = Depends(key_query_scheme),
 ):
-    """Create a vector store from a HIA instance. Replace all entries if it already exists."""
+    """Create a vector store from the 121 manual. Replaces the existing vector store with a new one."""
 
     if api_key != os.environ["API_KEY"]:
         raise HTTPException(status_code=401, detail="Unauthorized")
