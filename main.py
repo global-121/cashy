@@ -1,35 +1,21 @@
 from __future__ import annotations
 import uvicorn
-from langchain_core.prompts import PromptTemplate
 from fastapi import (
-    Security,
     Depends,
     FastAPI,
-    APIRouter,
     Request,
     HTTPException,
-    Header,
 )
 from langchain_community.document_transformers import MarkdownifyTransformer
-from langchain_community.vectorstores.azuresearch import AzureSearch
-from langchain_openai import AzureOpenAIEmbeddings
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from azure.search.documents.indexes import SearchIndexClient
-from azure.core.credentials import AzureKeyCredential
-from langchain_core.documents import Document
-from typing_extensions import List, TypedDict
-from langchain_openai import AzureChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import RecursiveUrlLoader
-
-from time import perf_counter
-import math
-import statistics
+from cashy.vector_store import vector_store, azure_search_index_client
+from cashy.agent import agent_graph
 import os
-import re
 import logging
 import sys
 
@@ -81,41 +67,6 @@ app.add_middleware(
 )
 key_query_scheme = APIKeyHeader(name="Authorization")
 
-azure_search_index_client = SearchIndexClient(
-    os.environ["VECTOR_STORE_ADDRESS"],
-    AzureKeyCredential(os.environ["VECTOR_STORE_PASSWORD"]),
-)
-
-vector_store_id = "121chatbot"
-
-# initialize vector store
-vector_db = AzureSearch(
-    azure_search_endpoint=os.environ["VECTOR_STORE_ADDRESS"],
-    azure_search_key=os.environ["VECTOR_STORE_PASSWORD"],
-    index_name=vector_store_id,
-    embedding_function=AzureOpenAIEmbeddings(
-        deployment=os.environ["MODEL_EMBEDDINGS"],
-        chunk_size=1,
-    ).embed_query,
-)
-
-# create the retriever and the QA pipeline
-llm = AzureChatOpenAI(
-    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-    azure_deployment=os.environ["MODEL_CHAT"],
-    openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
-)
-# prompt = hub.pull("rlm/rag-prompt")
-
-template = """You are a chatbot that gives an answer to a question. Answer the question truthfully based solely on
- the given documents. If you don't know the answer, just say that you don't know, don't try to make up an answer.
- If no documents are provided to answer the question, answer exactly this: 'I don't have the right information
- to answer your question'.
- Documents: {context}
- Question: {question}
- Answer:"""
-prompt = PromptTemplate.from_template(template)
-
 
 @app.get("/", include_in_schema=False)
 async def docs_redirect():
@@ -131,45 +82,33 @@ class QuestionPayload(BaseModel):
     )
 
 
-# Define state for application
-class State(TypedDict):
-    question: str
-    context: List[Document]
-    answer: str
-
-
 @app.post("/ask")
 async def ask_question(
-    payload: QuestionPayload, api_key: str = Depends(key_query_scheme)
+    payload: QuestionPayload, request: Request, api_key: str = Depends(key_query_scheme)
 ):
     """Ask something to the chatbot and get an answer."""
 
     if api_key != os.environ["API_KEY"]:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    t_start = perf_counter()
-    retrieved_docs = vector_db.similarity_search(payload.question, k=10)
-    t_stop = perf_counter()
-    logger.info(f"Elapsed time retrieving documents: {float(t_stop - t_start)} seconds")
+    # use client host as memory thread ID
+    client_host = request.client.host
+    config = {"configurable": {"thread_id": client_host}}
 
-    docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
-    prompt_invocation = prompt.invoke(
-        {"question": payload.question, "context": docs_content}
+    # invoke the agent graph with the question
+    response = agent_graph.invoke(
+        {"messages": [{"role": "user", "content": payload.question}]}, config=config
     )
+    answer = response["messages"][-1].content
 
-    t2_start = perf_counter()
-    answer = llm.invoke(prompt_invocation)
-    t2_stop = perf_counter()
-    logger.info(f"Elapsed time getting answer: {float(t2_stop - t2_start)} seconds")
-
-    return answer.content
+    return answer
 
 
 @app.post("/update-vector-store")
 async def update_vector_store(
     api_key: str = Depends(key_query_scheme),
 ):
-    """Create a vector store from a HIA instance. Replace all entries if it already exists."""
+    """Create a vector store from the 121 manual. Replaces the existing vector store with a new one."""
 
     if api_key != os.environ["API_KEY"]:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -196,28 +135,14 @@ async def update_vector_store(
     docs = md.transform_documents(docs)
 
     # delete existing data
-    index_client = SearchIndexClient(
-        os.environ["VECTOR_STORE_ADDRESS"],
-        AzureKeyCredential(os.environ["VECTOR_STORE_PASSWORD"]),
-    )
-    index_client.delete_index(vector_store_id)
+    azure_search_index_client.delete_index(os.environ["VECTOR_STORE_ID"])
 
     # embed docs and store to vector db
-    embedder = AzureOpenAIEmbeddings(
-        deployment=os.environ["MODEL_EMBEDDINGS"],
-        chunk_size=1,
-    )
-    vector_store = AzureSearch(
-        azure_search_endpoint=os.environ["VECTOR_STORE_ADDRESS"],
-        azure_search_key=os.environ["VECTOR_STORE_PASSWORD"],
-        index_name=vector_store_id,
-        embedding_function=embedder.embed_query,
-    )
     vector_store.add_documents(docs)
 
     return JSONResponse(
         status_code=200,
-        content=f"Updated {vector_store_id} with {len(docs)} documents.",
+        content=f"Updated {os.environ['VECTOR_STORE_ID']} with {len(docs)} documents.",
     )
 
 

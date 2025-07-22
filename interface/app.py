@@ -34,12 +34,11 @@ if prompt := st.chat_input():
 
     # make a POST request to chat API
     answer = requests.post(
-        "http://127.0.0.1:8000/ask",
+        # "http://127.0.0.1:8000/ask",
+        "https://121cashy.azurewebsites.net/ask",
         headers={"Authorization": os.environ["API_KEY"]},
         json={"question": prompt},
     )
-
-    print(answer.content.decode("utf-8"))
 
     response = answer.content.decode("utf-8")
     response = response[1:-1]  # remove quotes from response

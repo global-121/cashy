@@ -7,7 +7,7 @@ authors = [
 description = "121 chatbot"
 readme = "README.md"
 repository = "https://github.com/rodekruis/121-chatbot"
-packages = [{include = "src"}]
+packages = [{include = "cashy"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
