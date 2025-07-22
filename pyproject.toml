@@ -24,6 +24,7 @@ lxml = "*"
 markdownify = "*"
 pandas = "*"
 spacy = "*"
+streamlit = "*"
 
 [build-system]
 requires = ["poetry-core"]
