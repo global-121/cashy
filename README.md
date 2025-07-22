@@ -1,6 +1,6 @@
 # Cashy
 
-<img src="https://github.com/user-attachments/assets/5171c1fa-c7ad-4023-a5dd-f99c0433f51d" width="250">
+<img width="250" src="https://github.com/user-attachments/assets/faf65773-f731-44cb-a145-ea0f30cea58f" />
 
 Chat with [121 user manual](https://manual.121.global).
  
