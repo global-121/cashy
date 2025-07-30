@@ -20,6 +20,7 @@ llm = AzureChatOpenAI(
     azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
     azure_deployment=os.environ["MODEL_CHAT"],
     openai_api_version=os.environ["AZURE_OPENAI_API_VERSION"],
+    temperature=0.2,
 )
 
 # Load Cashy's prompt
@@ -47,7 +48,8 @@ def retrieve(query: str):
 def query_or_respond(state: MessagesState):
     """Generate tool call for retrieval or respond."""
     llm_with_tools = llm.bind_tools([retrieve])
-    response = llm_with_tools.invoke(state["messages"])
+    prompt = [SystemMessage(f"{cashy_prompt}")] + state["messages"]
+    response = llm_with_tools.invoke(prompt)
     # MessagesState appends messages to state instead of overwriting
     return {"messages": [response]}
 
