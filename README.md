@@ -2,7 +2,7 @@
 
 <img width="250" src="https://github.com/user-attachments/assets/faf65773-f731-44cb-a145-ea0f30cea58f" />
 
-Chat with [121 user manual](https://manual.121.global).
+Chat with [121 user manual](https://manual.121.global). You can try it out at [121cashy.streamlit.app](https://121cashy.streamlit.app/).
  
 ## Description
 
