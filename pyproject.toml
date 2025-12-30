@@ -25,6 +25,7 @@ markdownify = "*"
 pandas = "*"
 spacy = "*"
 streamlit = "*"
+urllib3 = ">=2.6.0"
 
 [build-system]
 requires = ["poetry-core"]
